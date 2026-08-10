@@ -90,12 +90,59 @@ const client = new OpenAI({
     baseURL: "https://integrate.api.nvidia.com/v1"
 });
 
+function buildFallbackAnalysis(userQuestion = "", sqlData = null, webData = null) {
+    const contextHints = [];
+    if (sqlData) contextHints.push("SQL data");
+    if (webData) contextHints.push("web context");
+
+    const summary = contextHints.length > 0
+        ? `Analysis could not be completed from the model response for "${userQuestion || "the request"}". The workflow will continue with available context from ${contextHints.join(" and ")}.`
+        : `No sufficient business data was available to generate a detailed analysis for "${userQuestion || "the request"}".`;
+
+    return {
+        summary,
+        insights: [],
+        trends: [],
+        anomalies: [],
+        risks: [],
+        opportunities: [],
+        recommendations: [],
+        visualizations: []
+    };
+}
+
+function normalizeAnalysisResult(rawContent, fallback) {
+    if (typeof rawContent !== "string") {
+        return fallback;
+    }
+
+    const trimmed = rawContent.trim();
+    if (!trimmed) {
+        return fallback;
+    }
+
+    try {
+        const parsed = JSON.parse(trimmed);
+        const safeParse = AnalysisSchema.safeParse(parsed);
+
+        if (!safeParse.success) {
+            console.warn("Analysis Agent returned invalid schema; using fallback.", safeParse.error.issues);
+            return fallback;
+        }
+
+        return safeParse.data;
+    } catch (error) {
+        console.warn("Analysis Agent could not parse the model response; using fallback.", error.message);
+        return fallback;
+    }
+}
+
 export async function analysisAgent(state) {
     try {
-
-        const userQuestion = state.userQuery;
-        const sqlData = state.sqlResult;
-        const webData = state.webResult;
+        const userQuestion = state?.userQuery ?? "";
+        const sqlData = state?.sqlResult ?? null;
+        const webData = state?.webResult ?? null;
+        const fallback = buildFallbackAnalysis(userQuestion, sqlData, webData);
 
         const messages = [
             {
@@ -112,52 +159,30 @@ export async function analysisAgent(state) {
             }
         ];
 
-
         const response = await client.chat.completions.create({
-
             model: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-
             messages,
-
             temperature: 0.2,
-
             max_tokens: 4096,
-
             seed: 42,
-
             response_format: {
                 type: "json_object"
             }
         });
 
-        const analysis = AnalysisSchema.parse(
-            JSON.parse(response.choices[0].message.content)
-        );
+        const content = response.choices?.[0]?.message?.content ?? "";
+        const analysis = normalizeAnalysisResult(content, fallback);
 
         return {
             success: true,
             analysisResult: analysis
         };
-
-    } catch (err) {
-        throw new Error(`Analysis Agent failed: ${err.message}`);
+    } catch (error) {
+        const fallback = buildFallbackAnalysis(state?.userQuery ?? "", state?.sqlResult ?? null, state?.webResult ?? null);
+        console.warn("Analysis Agent failed; using safe fallback.", error.message);
+        return {
+            success: true,
+            analysisResult: fallback
+        };
     }
 }
-
-const result = await analysisAgent({
-    userQuery: "Should I increase petrol prices next week?",
-
-    sqlResult: {
-        sales_trend: "Increasing",
-        profit_margin: 14.5
-    },
-
-    webResult: {
-        summary: "Crude oil prices may increase"
-    },
-
-    visualizationResult: null,
-    reportResult: null
-});
-
-console.log(JSON.stringify(result, null, 2));

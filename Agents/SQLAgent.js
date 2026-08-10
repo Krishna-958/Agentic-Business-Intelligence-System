@@ -91,11 +91,8 @@ export async function sqlAgent(state) {
                 }
             }
 
-            console.log("SQL Agent toolCalls:", JSON.stringify(toolCalls, null, 2));
-
             if (!toolCalls || toolCalls.length === 0) {
                 const finalContent = response.choices[0].message.content;
-                console.log("SQL Agent final response content:", finalContent);
 
                 if (toolResults.length > 0) {
 
@@ -136,9 +133,7 @@ export async function sqlAgent(state) {
                             break;
 
                         case "runReadOnlySql":
-                            console.log("Executing SQL query from tool call:", args.sqlQuery);
                             result = await runReadOnlySql(args.sqlQuery);
-                            console.log("SQL query result rows:", result);
                             toolResults.push({
                                 tool: tool.function.name,
                                 query: args.sqlQuery,

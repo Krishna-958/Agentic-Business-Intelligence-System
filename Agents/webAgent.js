@@ -59,10 +59,6 @@ Current UTC Time: ${new Date().toUTCString()}`
                 parallel_tool_calls: false
             });
 
-            console.log(
-                JSON.stringify(response.choices[0].message, null, 2)
-            );
-
             messages.push(response.choices[0].message);
 
             const toolCalls = response.choices[0].message.tool_calls;
@@ -123,7 +119,6 @@ Current UTC Time: ${new Date().toUTCString()}`
 }
 
 async function webSearch({ query }) {
-    console.log("Calling web search...");
     const response = await tvly.search(query, {
         max_results: 5,
         search_depth: "advanced"

@@ -35,143 +35,93 @@ import { reportAgent } from "../Agents/reportAgent.js";
 //     }
 // }
 
-function classifyQuery(query = "") {
+function parseQueryIntent(query = "") {
     const text = query.toLowerCase();
 
-    const internalKeywords = /\b(total|sum|average|count|revenue|profit|sales|margin|volume|inventory|customer|unit|order|record|database|table|month|year|quarter|forecast|analysis|performance)\b/i;
-    const externalKeywords = /\b(current|latest|today|now|recent|price|prices|rate|rates|trend|trends|news|weather|government|policy|regulation|diesel|petrol|gasoline|fuel|crude|oil price|exchange|stock price)\b/i;
     const reportKeywords = /\b(report|pdf|document|export|download)\b/i;
     const visualizationKeywords = /\b(chart|graph|visual|visualize|plot|dashboard)\b/i;
+    const externalKeywords = /\b(current|latest|today|now|recent|price|prices|rate|rates|trend|trends|news|weather|government|policy|regulation|diesel|petrol|gasoline|fuel|crude|oil price|exchange|stock price)\b/i;
+    const internalKeywords = /\b(total|sum|average|count|revenue|profit|sales|margin|volume|inventory|customer|unit|order|record|database|table|month|year|quarter|forecast|analysis|performance)\b/i;
+    const directAnswerKeywords = /\b(what|how much|how many|total|sum|average|count|show|find|list|give me)\b/i;
 
-    if (reportKeywords.test(text)) {
-        return "REPORT";
-    }
-
-    if (visualizationKeywords.test(text)) {
-        return "VISUALIZATION";
-    }
-
-    if (externalKeywords.test(text)) {
-        return "EXTERNAL";
-    }
-
-    if (internalKeywords.test(text)) {
-        return "INTERNAL";
-    }
-
-    return "UNKNOWN";
+    return {
+        wantsReport: reportKeywords.test(text),
+        wantsVisualization: visualizationKeywords.test(text),
+        wantsExternal: externalKeywords.test(text),
+        wantsInternal: internalKeywords.test(text),
+        isDirectAnswer: directAnswerKeywords.test(text) && !reportKeywords.test(text) && !visualizationKeywords.test(text)
+    };
 }
 
-export async function supervisorNode(state) {
-
-    const queryType = classifyQuery(state?.userQuery ?? "");
+function buildFallbackDecision(state) {
+    const query = state?.userQuery ?? "";
+    const intent = parseQueryIntent(query);
     const hasSql = Boolean(state?.sqlResult);
     const hasWeb = Boolean(state?.webResult);
     const hasAnalysis = Boolean(state?.analysisResult);
     const hasVisualization = Boolean(state?.visualizationResult);
     const hasReport = Boolean(state?.reportResult);
+    const hasData = hasSql || hasWeb;
 
-    if (queryType === "EXTERNAL" && !hasWeb) {
-        return {
-            supervisorDecision: {
-                nextAgent: "WEB",
-                reason: "The question requires current external information.",
-                agentInput: {},
-                finalResponse: null
-            },
-            nextAgent: "WEB",
-            finalResponse: null
-        };
+    if (intent.wantsExternal && !intent.wantsInternal && !hasWeb) {
+        return { nextAgent: "WEB", reason: "The query is external and requires current web information.", finalResponse: null };
     }
 
-    if (queryType === "INTERNAL" && !hasSql) {
-        return {
-            supervisorDecision: {
-                nextAgent: "SQL",
-                reason: "The question requires internal business data from the database.",
-                agentInput: {},
-                finalResponse: null
-            },
-            nextAgent: "SQL",
-            finalResponse: null
-        };
+    if (!hasSql && !(intent.wantsExternal && !intent.wantsInternal)) {
+        return { nextAgent: "SQL", reason: "Internal business data is needed before answering.", finalResponse: null };
     }
 
-    if (!hasSql) {
-        return {
-            supervisorDecision: {
-                nextAgent: "SQL",
-                reason: "No internal data is available yet and SQL is the default source for business metrics.",
-                agentInput: {},
-                finalResponse: null
-            },
-            nextAgent: "SQL",
-            finalResponse: null
-        };
+    if (intent.wantsExternal && !hasWeb) {
+        return { nextAgent: "WEB", reason: "Current external context is still needed.", finalResponse: null };
     }
 
-    if (!hasWeb && queryType === "EXTERNAL") {
-        return {
-            supervisorDecision: {
-                nextAgent: "WEB",
-                reason: "External data is needed and can now be retrieved from the web.",
-                agentInput: {},
-                finalResponse: null
-            },
-            nextAgent: "WEB",
-            finalResponse: null
-        };
+    if (intent.isDirectAnswer && hasData && !intent.wantsReport && !intent.wantsVisualization) {
+        return { nextAgent: "END", reason: "The answer can be produced from the available data.", finalResponse: null };
     }
 
-    if (!hasAnalysis) {
-        return {
-            supervisorDecision: {
-                nextAgent: "ANALYSIS",
-                reason: "Available data should be analyzed before forming a final response.",
-                agentInput: {},
-                finalResponse: null
-            },
-            nextAgent: "ANALYSIS",
-            finalResponse: null
-        };
+    if (!hasAnalysis && hasData) {
+        return { nextAgent: "ANALYSIS", reason: "The available data should be analyzed before responding.", finalResponse: null };
     }
 
-    if (queryType === "VISUALIZATION" && !hasVisualization) {
-        return {
-            supervisorDecision: {
-                nextAgent: "VISUALIZATION",
-                reason: "The user requested visualization output.",
-                agentInput: {},
-                finalResponse: null
-            },
-            nextAgent: "VISUALIZATION",
-            finalResponse: null
-        };
+    if (intent.wantsVisualization && !hasVisualization) {
+        return { nextAgent: "VISUALIZATION", reason: "The user requested a chart or graph.", finalResponse: null };
     }
 
-    if (queryType === "REPORT" && !hasReport) {
-        return {
-            supervisorDecision: {
-                nextAgent: "REPORT",
-                reason: "The user explicitly requested a report.",
-                agentInput: {},
-                finalResponse: null
-            },
-            nextAgent: "REPORT",
-            finalResponse: null
-        };
+    if (intent.wantsReport && !hasReport) {
+        return { nextAgent: "REPORT", reason: "The user requested a report or document.", finalResponse: null };
     }
 
-    return {
-        supervisorDecision: {
-            nextAgent: "END",
-            reason: "The workflow has enough data to conclude.",
-            agentInput: {},
-            finalResponse: null
-        },
-        nextAgent: "END",
-        finalResponse: null
-    };
+    return { nextAgent: "END", reason: "The workflow has enough information to conclude.", finalResponse: null };
+}
+
+export async function supervisorNode(state) {
+    try {
+        const result = await supervisorAgent(state);
+        const nextAgent = String(result?.nextAgent ?? "END").toUpperCase();
+
+        return {
+            supervisorDecision: {
+                ...result,
+                nextAgent,
+                finalResponse: result?.finalResponse ?? null
+            },
+            nextAgent,
+            finalResponse: result?.finalResponse ?? null
+        };
+    } catch (error) {
+        console.warn("Supervisor LLM decision failed, using fallback routing.", error.message);
+        const fallback = buildFallbackDecision(state);
+        return {
+            supervisorDecision: {
+                nextAgent: fallback.nextAgent,
+                reason: fallback.reason,
+                agentInput: { userQuery: state?.userQuery ?? "" },
+                finalResponse: fallback.finalResponse
+            },
+            nextAgent: fallback.nextAgent,
+            finalResponse: fallback.finalResponse
+        };
+    }
 }
 
 
@@ -179,13 +129,7 @@ export async function supervisorNode(state) {
 export async function sqlNode(state) {
 
     try {
-        console.log("=== SQL NODE INVOKED ===");
-        console.log("SQL node state:", state);
-
         const result = await sqlAgent(state);
-
-        console.log("=== SQL NODE RESULT ===");
-        console.log(result);
 
         return {
             sqlResult: result.sqlResult,

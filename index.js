@@ -25,17 +25,48 @@ function formatCurrency(value) {
     return value;
 }
 
+function compactText(text, maxLength = 220) {
+    if (typeof text !== "string") {
+        return text;
+    }
+
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (normalized.length <= maxLength) {
+        return normalized;
+    }
+
+    return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function formatOutputMessage(result) {
+    if (result.finalResponse) {
+        return compactText(result.finalResponse);
+    }
+
+    if (result.reportResult?.pdf) {
+        return `Report generated: ${result.reportResult.pdf}`;
+    }
+
+    if (result.visualizationResult?.charts?.length) {
+        return `Charts generated: ${result.visualizationResult.charts.length}`;
+    }
+
+    return "Workflow completed without a final response.";
+}
+
 function buildFinalResponse(state) {
     if (state.finalResponse) {
         return state.finalResponse;
     }
 
     if (state.reportResult?.markdown) {
-        return state.reportResult.markdown;
+        return state.reportResult.pdf
+            ? `Report generated successfully. PDF: ${state.reportResult.pdf}`
+            : "Report generated successfully.";
     }
 
     if (state.analysisResult?.summary) {
-        return state.analysisResult.summary;
+        return compactText(state.analysisResult.summary);
     }
 
     if (Array.isArray(state.sqlResult) && state.sqlResult.length > 0) {
@@ -62,7 +93,7 @@ function buildFinalResponse(state) {
     }
 
     if (state.webResult?.summary) {
-        return state.webResult.summary;
+        return compactText(state.webResult.summary);
     }
 
     return null;
@@ -72,28 +103,6 @@ async function runWorkflow(initialState) {
     let state = { ...initialState };
 
     for (let step = 0; step < 10; step += 1) {
-        const wantsReport = /\b(report|pdf|document|export|download)\b/i.test(state.userQuery ?? "");
-        const wantsVisualization = /\b(chart|graph|visual|visualize|plot|dashboard)\b/i.test(state.userQuery ?? "");
-        const directAnswer = isDirectDataQuestion(state.userQuery ?? "");
-
-        if (!wantsReport && !wantsVisualization && (directAnswer || state.analysisResult || state.sqlResult || state.webResult)) {
-            const generated = buildFinalResponse(state);
-            if (generated) {
-                state = {
-                    ...state,
-                    finalResponse: generated,
-                    nextAgent: "END",
-                    supervisorDecision: {
-                        nextAgent: "END",
-                        reason: "The workflow has enough data to answer the user directly.",
-                        agentInput: {},
-                        finalResponse: generated
-                    }
-                };
-                break;
-            }
-        }
-
         const supervisorResult = await supervisorNode(state);
         state = {
             ...state,
@@ -103,18 +112,6 @@ async function runWorkflow(initialState) {
         const nextAgent = String(state.nextAgent ?? "END").toUpperCase();
 
         if (nextAgent === "END" || nextAgent === "__END__") {
-            const generated = buildFinalResponse(state);
-            if (generated && !state.finalResponse) {
-                state = {
-                    ...state,
-                    finalResponse: generated,
-                    supervisorDecision: {
-                        ...(state.supervisorDecision ?? {}),
-                        nextAgent: "END",
-                        finalResponse: generated
-                    }
-                };
-            }
             break;
         }
 
@@ -138,6 +135,21 @@ async function runWorkflow(initialState) {
         }
     }
 
+    if (!state.finalResponse) {
+        const generated = buildFinalResponse(state);
+        if (generated) {
+            state = {
+                ...state,
+                finalResponse: generated,
+                supervisorDecision: {
+                    ...(state.supervisorDecision ?? {}),
+                    nextAgent: "END",
+                    finalResponse: generated
+                }
+            };
+        }
+    }
+
     return state;
 }
 
@@ -147,7 +159,7 @@ async function main() {
     const initialState = {
 
         userQuery:
-        "generate the project report of the April month"
+        "what is our total revenue ?"
 
     };
 
@@ -155,44 +167,8 @@ async function main() {
     const result = await runWorkflow(initialState);
 
 
-    console.log("\n========== FINAL STATE ==========\n");
-
-    console.dir(result, {
-        depth:null
-    });
-
-
     console.log("\n========== OUTPUT ==========\n");
-
-
-    if(result.finalResponse){
-
-        console.log(result.finalResponse);
-
-    }
-    else if(result.reportResult){
-
-        console.log(
-            "Report Generated:",
-            result.reportResult.pdf
-        );
-
-    }
-    else if(result.visualizationResult){
-
-        console.log(
-            "Charts Generated:",
-            result.visualizationResult.charts
-        );
-
-    }
-    else{
-
-        console.log(
-            "Workflow completed without final response"
-        );
-
-    }
+    console.log(formatOutputMessage(result));
 
 }
 
