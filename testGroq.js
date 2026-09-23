@@ -4,36 +4,33 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const client = new OpenAI({
-    apiKey: process.env.NVIDIA_API_KEY,
-    baseURL: "nvidia/nemotron-3.5-lightning-30b-a3b"
+    apiKey: process.env.GROQ_API_KEY,
+    baseURL: "https://api.groq.com/openai/v1"
 });
 
-async function testNvidia() {
+async function testGroq() {
     try {
-        console.log("Testing NVIDIA chat completion...");
+        console.log("Testing Groq...");
 
         const response = await client.chat.completions.create({
-            model: "meta/llama-3.1-8b-instruct",
+            model: "openai/gpt-oss-120b",
             messages: [
                 {
                     role: "user",
                     content: "Say hello in one short sentence."
                 }
             ],
-            max_tokens: 50,
-            temperature: 0.6,
-            top_p: 0.95,
-            stream: false
+            temperature: 0.2,
+            max_tokens: 50
         });
 
         console.log("\nSUCCESS!\n");
         console.log(response.choices[0].message.content);
 
     } catch (error) {
-        console.log("\nSTATUS:", error.status);
-        console.log("MESSAGE:", error.message);
-        console.log("HEADERS:", error.headers);
+        console.error("\nGROQ ERROR:");
+        console.error(error);
     }
 }
 
-testNvidia();
+testGroq();
