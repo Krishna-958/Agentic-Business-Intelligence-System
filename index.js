@@ -99,7 +99,7 @@ function buildFinalResponse(state) {
     return null;
 }
 
-async function runWorkflow(initialState) {
+export async function runWorkflow(initialState) {
     let state = { ...initialState };
 
     for (let step = 0; step < 10; step += 1) {
@@ -159,7 +159,7 @@ async function main() {
     const initialState = {
 
         userQuery:
-        "what is our total revenue ?"
+        "Create a Arpril Month report"
 
     };
 
@@ -173,4 +173,4 @@ async function main() {
 }
 
 
-main().catch(console.error);
+// main().catch(console.error);

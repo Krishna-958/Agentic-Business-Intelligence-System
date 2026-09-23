@@ -1,7 +1,8 @@
 import OpenAI from "openai";
-import { createClient } from "@libsql/client";
+
 import dotenv from "dotenv";
 import { buildSQLSystemPrompt } from "../prompts/sqlPrompt.js";
+import tursoClient from "../lib/tursoClient.js";
 
 dotenv.config();
 
@@ -20,10 +21,7 @@ const nvidiaClient = new OpenAI({
     baseURL: "https://integrate.api.nvidia.com/v1"
 });
 
-const tursoClient = createClient({
-    url: process.env.TURSO_DATABASE_URL,
-    authToken: process.env.TURSO_AUTH_TOKEN
-});
+
 
 export async function sqlAgent(state) {
     try {
